@@ -1,5 +1,6 @@
 const InboxMessage = require('./inboxMessage.model');
 const InboxRead = require('./inboxRead.model');
+const InboxDeleted = require('./inboxDeleted.model');
 const User = require('../users/user.model');
 
 // ====== فلتر أساسي: أي رسالة تظهر للاعب ده - رسائله الشخصية، زائد أي رسالة
@@ -77,7 +78,14 @@ async function sendPrivateMessage({ senderId, recipientId, body }) {
 
 // ====== قائمة رسائل صندوق وارد اللاعب، من الأحدث للأقدم، مع حالة القراءة لكل رسالة ======
 async function listInbox(userId, { limit = 30, skip = 0 } = {}) {
-  const filter = await visibleMessagesFilter(userId);
+  const baseFilter = await visibleMessagesFilter(userId);
+
+  // نستبعد أي رسالة اللاعب ده حذفها من عنده - نفس فكرة "الحذف الشخصي" اللي
+  // موضحة فوق جوّه InboxDeleted، بنجيب الـ ids المحذوفة بتاعته الأول وبعدين
+  // نستبعدها من فلتر البحث الرئيسي عن طريق $nin
+  const deletedIds = await InboxDeleted.find({ user_id: userId }).distinct('message_id');
+  const filter =
+    deletedIds.length > 0 ? { $and: [baseFilter, { _id: { $nin: deletedIds } }] } : baseFilter;
 
   const [messages, total] = await Promise.all([
     InboxMessage.find(filter).sort({ created_at: -1 }).skip(skip).limit(limit),
@@ -113,8 +121,12 @@ async function getUnreadCount(userId) {
 
   if (allIds.length === 0) return 0;
 
-  const readIds = await InboxRead.find({ user_id: userId, message_id: { $in: allIds } }).distinct('message_id');
-  return allIds.length - readIds.length;
+  const [readIds, deletedIds] = await Promise.all([
+    InboxRead.find({ user_id: userId, message_id: { $in: allIds } }).distinct('message_id'),
+    InboxDeleted.find({ user_id: userId, message_id: { $in: allIds } }).distinct('message_id'),
+  ]);
+  const excluded = new Set([...readIds, ...deletedIds].map((id) => id.toString()));
+  return allIds.filter((id) => !excluded.has(id.toString())).length;
 }
 
 // ====== تعليم رسالة واحدة كمقروءة - upsert عشان تتحمل تتنادى أكتر من مرة من غير error ======
@@ -164,6 +176,33 @@ async function markAllAsRead(userId) {
   return { marked: unreadIds.length };
 }
 
+// ====== حذف رسالة من صندوق وارد اللاعب (حذف شخصي - الرسالة بتفضل موجودة
+// للمستخدمين التانيين لو كانت جماعية). مسموح بس للرسائل المقروءة already -
+// الشرط ده بنفرضه هنا في السيرفس نفسه مش بس مخفي في الفرونت إند، عشان محدّش
+// يقدر يمسح رسالة لسه مطلعهاش (مثلاً عن طريق نداء مباشر للـ API). ======
+async function deleteMessage(userId, messageId) {
+  const message = await InboxMessage.findById(messageId);
+  if (!message) {
+    throw new Error('الرسالة دي مش موجودة');
+  }
+  if (message.user_id && message.user_id.toString() !== userId.toString()) {
+    throw new Error('الرسالة دي مش ليك');
+  }
+
+  const isRead = await InboxRead.exists({ user_id: userId, message_id: messageId });
+  if (!isRead) {
+    throw new Error('لازم تقرا الرسالة الأول قبل ما تحذفها');
+  }
+
+  await InboxDeleted.updateOne(
+    { user_id: userId, message_id: messageId },
+    { $setOnInsert: { user_id: userId, message_id: messageId, deleted_at: new Date() } },
+    { upsert: true }
+  );
+
+  return { message_id: messageId, deleted: true };
+}
+
 module.exports = {
   createSystemMessage,
   createBroadcast,
@@ -172,4 +211,5 @@ module.exports = {
   getUnreadCount,
   markAsRead,
   markAllAsRead,
+  deleteMessage,
 };

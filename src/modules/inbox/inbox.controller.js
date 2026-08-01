@@ -43,6 +43,16 @@ async function markAllAsRead(req, res) {
   }
 }
 
+async function deleteMessage(req, res) {
+  try {
+    const result = await inboxService.deleteMessage(req.user._id, req.params.messageId);
+    return res.json(result);
+  } catch (err) {
+    console.error('[Inbox] deleteMessage error:', err.message);
+    return res.status(400).json({ error: err.message });
+  }
+}
+
 // ====== رسالة خاصة من لاعب لتاني (Message Player) - وقت زيارة مملكة لاعب
 // حقيقي (مش NPC) من صفحة خريطة العالم. ======
 async function sendMessage(req, res) {
@@ -86,4 +96,12 @@ async function broadcast(req, res) {
   }
 }
 
-module.exports = { listInbox, getUnreadCount, markAsRead, markAllAsRead, sendMessage, broadcast };
+module.exports = {
+  listInbox,
+  getUnreadCount,
+  markAsRead,
+  markAllAsRead,
+  deleteMessage,
+  sendMessage,
+  broadcast,
+};
