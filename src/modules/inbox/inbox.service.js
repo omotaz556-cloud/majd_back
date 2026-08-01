@@ -203,6 +203,37 @@ async function deleteMessage(userId, messageId) {
   return { message_id: messageId, deleted: true };
 }
 
+// ====== حذف كل الرسائل المقروءة دفعة واحدة (حذف شخصي زي deleteMessage) -
+// بنجيب كل الرسائل الظاهرة للاعب، بعدين نستبعد المحذوفة already، وبعدين
+// نفلتر بس اللي مقروءة (نفس شرط deleteMessage: مينفعش تتحذف رسالة لسه
+// مطلعهاش) وبعدين نعمل insert جماعي في InboxDeleted. ======
+async function deleteAllRead(userId) {
+  const baseFilter = await visibleMessagesFilter(userId);
+
+  const deletedIds = await InboxDeleted.find({ user_id: userId }).distinct('message_id');
+  const filter =
+    deletedIds.length > 0 ? { $and: [baseFilter, { _id: { $nin: deletedIds } }] } : baseFilter;
+
+  const allIds = await InboxMessage.find(filter).distinct('_id');
+  if (allIds.length === 0) return { deleted: 0 };
+
+  const readIds = await InboxRead.find({ user_id: userId, message_id: { $in: allIds } }).distinct(
+    'message_id'
+  );
+  if (readIds.length === 0) return { deleted: 0 };
+
+  const ops = readIds.map((messageId) => ({
+    updateOne: {
+      filter: { user_id: userId, message_id: messageId },
+      update: { $setOnInsert: { user_id: userId, message_id: messageId, deleted_at: new Date() } },
+      upsert: true,
+    },
+  }));
+
+  await InboxDeleted.bulkWrite(ops);
+  return { deleted: readIds.length };
+}
+
 module.exports = {
   createSystemMessage,
   createBroadcast,
@@ -212,4 +243,5 @@ module.exports = {
   markAsRead,
   markAllAsRead,
   deleteMessage,
+  deleteAllRead,
 };

@@ -6,6 +6,7 @@ const {
   markAsRead,
   markAllAsRead,
   deleteMessage,
+  deleteAllRead,
   sendMessage,
   broadcast,
 } = require('./inbox.controller');
@@ -17,6 +18,9 @@ playerRouter.get('/', listInbox);
 playerRouter.get('/unread-count', getUnreadCount);
 playerRouter.post('/read-all', markAllAsRead);
 playerRouter.post('/message', sendMessage);
+// ملحوظة: لازم يفضل الراوت الثابت ده قبل '/:messageId' تحت، وإلا إكسبريس
+// هيتعامل مع 'delete-read' كإنه قيمة messageId
+playerRouter.delete('/delete-read', deleteAllRead);
 playerRouter.post('/:messageId/read', markAsRead);
 playerRouter.delete('/:messageId', deleteMessage);
 

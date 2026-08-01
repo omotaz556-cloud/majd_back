@@ -53,6 +53,16 @@ async function deleteMessage(req, res) {
   }
 }
 
+async function deleteAllRead(req, res) {
+  try {
+    const result = await inboxService.deleteAllRead(req.user._id);
+    return res.json(result);
+  } catch (err) {
+    console.error('[Inbox] deleteAllRead error:', err.message);
+    return res.status(500).json({ error: 'Failed to delete read messages' });
+  }
+}
+
 // ====== رسالة خاصة من لاعب لتاني (Message Player) - وقت زيارة مملكة لاعب
 // حقيقي (مش NPC) من صفحة خريطة العالم. ======
 async function sendMessage(req, res) {
@@ -102,6 +112,7 @@ module.exports = {
   markAsRead,
   markAllAsRead,
   deleteMessage,
+  deleteAllRead,
   sendMessage,
   broadcast,
 };
